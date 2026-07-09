@@ -1,0 +1,9 @@
+{
+  "buildCommand": "pnpm --filter @workspace/pisti-game run build",
+  "outputDirectory": "artifacts/pisti-game/dist",
+  "installCommand": "pnpm install",
+  "framework": null,
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
