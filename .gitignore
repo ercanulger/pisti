@@ -1,6 +1,0 @@
-node_modules
-dist
-artifacts/*/dist
-.env.local
-.env.*.local
-.replit-artifact/
