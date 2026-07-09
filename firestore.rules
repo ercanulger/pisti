@@ -1,0 +1,42 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function myUid() {
+      return request.auth.uid;
+    }
+
+    function myUserDoc() {
+      return get(/databases/$(database)/documents/users/$(myUid()));
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && myUserDoc().data.isAdmin == true
+        && myUserDoc().data.nickname == "ercanulger";
+    }
+
+    match /users/{uid} {
+      allow read, write: if signedIn() && (uid == myUid() || isAdmin());
+    }
+
+    match /publicProfiles/{uid} {
+      allow read: if signedIn();
+      allow write: if signedIn() && (uid == myUid() || isAdmin());
+    }
+
+    match /gameHistory/{docId} {
+      allow create: if signedIn() && (request.resource.data.uid == myUid() || isAdmin());
+      allow read: if signedIn() && (resource.data.uid == myUid() || isAdmin());
+      allow update, delete: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+  }
+}
