@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body), sans-serif;
+  background: radial-gradient(circle at top, #0b1226 0%, #03040a 52%, #010102 100%);
+  color: #f4f4f5;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-heading), sans-serif;
+}
+
+.cyber-card {
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  background: linear-gradient(145deg, rgba(10, 15, 30, 0.9), rgba(5, 5, 9, 0.95));
+  box-shadow: inset 0 0 0 1px rgba(192, 132, 252, 0.2), 0 12px 32px rgba(0, 0, 0, 0.35);
+}
