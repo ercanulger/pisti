@@ -1,0 +1,117 @@
+{
+  "entities": {
+    "Player": {
+      "title": "Player",
+      "description": "User profile with game progress and currency status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "email": { "type": "string" },
+        "avatarUrl": { "type": "string" },
+        "elo": { "type": "number" },
+        "coins": { "type": "number" },
+        "isBot": { "type": "boolean" },
+        "botLevel": { "type": "string" },
+        "selectedFrame": { "type": "string" },
+        "selectedFont": { "type": "string" },
+        "selectedColor": { "type": "string" },
+        "selectedBadge": { "type": "string" }
+      },
+      "required": ["id", "username", "avatarUrl", "elo", "coins", "isBot"]
+    },
+    "UserInventory": {
+      "title": "UserInventory",
+      "description": "Item owned in user inventory purchased from shop",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "itemType": { "type": "string" },
+        "itemId": { "type": "string" },
+        "purchasedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "itemType", "itemId", "purchasedAt"]
+    },
+    "UserRole": {
+      "title": "UserRole",
+      "description": "User administration roles",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "role": { "type": "string" }
+      },
+      "required": ["id", "userId", "role"]
+    },
+    "MatchHistory": {
+      "title": "MatchHistory",
+      "description": "Historic details of played matches",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "players": { "type": "array" },
+        "winnerId": { "type": "string" },
+        "pointsCollected": { "type": "number" },
+        "coinsEarned": { "type": "number" },
+        "eloEarned": { "type": "number" }
+      },
+      "required": ["id", "date", "players", "winnerId"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Security and activity logs for admins",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "action": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "userId", "action", "details", "timestamp"]
+    },
+    "Verification": {
+      "title": "Verification",
+      "description": "Verification code for authentication",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "username": { "type": "string" },
+        "code": { "type": "string" },
+        "type": { "type": "string" },
+        "expiresAt": { "type": "string" },
+        "verified": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["email", "username", "code", "type", "expiresAt", "verified", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": { "$ref": "#/entities/Player" },
+      "description": "Active user records"
+    },
+    "user_inventory": {
+      "schema": { "$ref": "#/entities/UserInventory" },
+      "description": "Purchased customizations and frames"
+    },
+    "user_roles": {
+      "schema": { "$ref": "#/entities/UserRole" },
+      "description": "Roles like admin or player"
+    },
+    "match_history": {
+      "schema": { "$ref": "#/entities/MatchHistory" },
+      "description": "Game match result summaries"
+    },
+    "audit_log": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Admin dashboard system audit trails"
+    },
+    "verifications": {
+      "schema": { "$ref": "#/entities/Verification" },
+      "description": "Validation codes"
+    }
+  }
+}

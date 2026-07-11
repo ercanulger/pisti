@@ -1,0 +1,57 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Catch-all safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable validation helpers
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    // Collection: users
+    match /users/{userId} {
+      allow read: if true;
+      allow create, update: if isValidId(userId) &&
+        incoming().username is string &&
+        incoming().username.size() >= 2 &&
+        incoming().username.size() <= 30;
+    }
+
+    // Collection: user_inventory
+    match /user_inventory/{inventoryId} {
+      allow read: if true;
+      allow create, update: if isValidId(inventoryId);
+    }
+
+    // Collection: user_roles
+    match /user_roles/{roleId} {
+      allow read: if true;
+      allow create, update: if isValidId(roleId);
+    }
+
+    // Collection: match_history
+    match /match_history/{matchId} {
+      allow read: if true;
+      allow create, update: if isValidId(matchId);
+    }
+
+    // Collection: audit_log
+    match /audit_log/{logId} {
+      allow read: if true;
+      allow create: if isValidId(logId);
+    }
+
+    // Collection: verifications
+    match /verifications/{email} {
+      allow read, write: if true;
+    }
+  }
+}
