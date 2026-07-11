@@ -20,6 +20,7 @@ export type TabType = 'home' | 'leaderboard' | 'shop' | 'quests' | 'profile';
 export interface Player {
   id: string;
   username: string;
+  email?: string;
   avatarUrl: string;
   elo: number;
   coins: number;

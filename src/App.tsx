@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react';
 import { Player, MatchHistory, TabType } from './types';
 import { initializeDB, getCurrentUser, isUserAdmin, getUsers } from './utils/db';
+import { setupRealtimeListeners } from './utils/firestore-sync';
 import { TopPanel } from './components/TopPanel';
 import { BottomNavBar } from './components/BottomNavBar';
 import { DashboardView } from './components/DashboardView';
@@ -39,6 +40,15 @@ export default function App() {
     initializeDB();
     refreshUserData();
     setIsLoaded(true);
+
+    // Subscribe to live Firestore updates
+    const unsubscribe = setupRealtimeListeners(() => {
+      refreshUserData();
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   const refreshUserData = () => {
