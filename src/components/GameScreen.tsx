@@ -54,6 +54,18 @@ export const GameScreen: React.FC<GameScreenProps> = ({ currentUser, gameMode, o
   // Card played tracking (for Expert Bot memory)
   const [playedHistory, setPlayedHistory] = useState<Card[]>([]);
 
+  // Refs to maintain the most up-to-date states and bypass React's async closure problem
+  const deckRef = useRef<Card[]>([]);
+  const handsRef = useRef<{ [playerId: string]: Card[] }>({});
+
+  useEffect(() => {
+    deckRef.current = deck;
+  }, [deck]);
+
+  useEffect(() => {
+    handsRef.current = hands;
+  }, [hands]);
+
   // Initialize Game on Mount
   useEffect(() => {
     const bots = selectOpponents();
@@ -115,10 +127,10 @@ export const GameScreen: React.FC<GameScreenProps> = ({ currentUser, gameMode, o
       const activeBot = allPlayers[currentTurn];
       if (!activeBot) return;
 
-      const botHand = hands[activeBot.id] || [];
+      const botHand = handsRef.current[activeBot.id] || [];
       if (botHand.length === 0) {
         // If hand is empty, check if we need to deal next cards or end game
-        checkRoundProgression();
+        checkRoundProgression(handsRef.current);
         return;
       }
 
@@ -130,7 +142,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({ currentUser, gameMode, o
 
       return () => clearTimeout(timer);
     }
-  }, [currentTurn, hands, gameOver, isOffline, isDealing]);
+  }, [currentTurn, gameOver, isOffline, isDealing]);
 
   const startNewGame = (playersList: Player[]) => {
     const shufDeck = generateDeck();
@@ -149,7 +161,11 @@ export const GameScreen: React.FC<GameScreenProps> = ({ currentUser, gameMode, o
     });
 
     setDeck(tempDeck);
+    deckRef.current = tempDeck;
+
     setHands(initialHands);
+    handsRef.current = initialHands;
+
     setBoardPile(initialBoard);
     setCapturedCards(playersList.reduce((acc, p) => ({ ...acc, [p.id]: [] }), {}));
     setPistis(playersList.reduce((acc, p) => ({ ...acc, [p.id]: 0 }), {}));
@@ -163,7 +179,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({ currentUser, gameMode, o
   };
 
   const executeBotTurn = (bot: Player, botIndex: number) => {
-    const botHand = hands[bot.id] || [];
+    const botHand = handsRef.current[bot.id] || [];
     const chosenCard = makeBotMove(botHand, boardPile, bot.botLevel || 'beginner', playedHistory);
     
     playCard(bot.id, chosenCard, botIndex);
@@ -172,11 +188,17 @@ export const GameScreen: React.FC<GameScreenProps> = ({ currentUser, gameMode, o
   const playCard = (playerId: string, card: Card, playerIndex: number) => {
     const cardWithPlayer = { ...card, playedBy: playerId };
 
-    // 1. Remove card from player hand
-    setHands((prev) => ({
-      ...prev,
-      [playerId]: prev[playerId].filter((c) => c.id !== card.id),
-    }));
+    // 1. Remove card from player hand using atomic update
+    const currentHands = { ...handsRef.current };
+    const playerHand = currentHands[playerId] || [];
+    const nextPlayerHand = playerHand.filter((c) => c.id !== card.id);
+    const nextHands = {
+      ...currentHands,
+      [playerId]: nextPlayerHand,
+    };
+
+    setHands(nextHands);
+    handsRef.current = nextHands;
 
     // Trigger haptic & ripple effects
     triggerHaptic();
@@ -252,27 +274,28 @@ export const GameScreen: React.FC<GameScreenProps> = ({ currentUser, gameMode, o
     const nextTurn = (playerIndex + 1) % 4;
     
     // Check if hands are all empty to deal next or finish
-    const allHandsEmpty = Object.values(hands).every((h) => (h as Card[]).length === 0) && hands[playerId].length === 1; // since state updates next tick
+    const allHandsEmpty = Object.values(nextHands).every((h) => (h as Card[]).length === 0);
 
-    if (allHandsEmpty && hands[playerId].length === 1) {
-      setTimeout(() => checkRoundProgression(), 600);
+    if (allHandsEmpty) {
+      setTimeout(() => checkRoundProgression(nextHands), 600);
     } else {
       setCurrentTurn(nextTurn);
     }
   };
 
-  const checkRoundProgression = () => {
+  const checkRoundProgression = (currentHands = handsRef.current) => {
     // Check if hands are empty
-    const allHandsEmpty = allPlayers.every((p) => (hands[p.id] || []).length === 0);
+    const allHandsEmpty = allPlayers.every((p) => (currentHands[p.id] || []).length === 0);
     
     if (allHandsEmpty) {
-      if (deck.length > 0) {
+      const currentDeck = [...deckRef.current];
+      if (currentDeck.length > 0) {
         // Deal next round of cards
         setIsDealing(true);
-        setLogs((prev) => ['Kartlar dağıtılıyor...', ...prev]);
+        setLogs((prev) => ['Yeni kartlar dağıtılıyor...', ...prev]);
 
         setTimeout(() => {
-          let tempDeck = deck;
+          let tempDeck = [...deckRef.current];
           const nextHands: { [playerId: string]: Card[] } = {};
 
           allPlayers.forEach((p) => {
@@ -281,10 +304,15 @@ export const GameScreen: React.FC<GameScreenProps> = ({ currentUser, gameMode, o
           });
 
           setDeck(tempDeck);
+          deckRef.current = tempDeck;
+
           setHands(nextHands);
+          handsRef.current = nextHands;
+
           setIsDealing(false);
           setCurrentTurn(0); // human plays first
-        }, 1000);
+          setLogs((prev) => ['Yeni el dağıtıldı! Senin sıran.', ...prev]);
+        }, 1200);
       } else {
         // Deck exhausted, Round Ended!
         endRound();
@@ -422,23 +450,35 @@ export const GameScreen: React.FC<GameScreenProps> = ({ currentUser, gameMode, o
     else if (card.value === 12) displayValue = 'Q';
     else if (card.value === 13) displayValue = 'K';
 
+    const colorClasses = isRed 
+      ? 'text-rose-500 border-rose-950/40 bg-gradient-to-b from-rose-950/20 to-slate-950/95' 
+      : 'text-cyan-400 border-cyan-950/40 bg-gradient-to-b from-cyan-950/10 to-slate-950/95';
+
     return (
-      <div className="w-full h-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 flex flex-col justify-between relative text-slate-100 select-none shadow-md overflow-hidden">
-        {/* Holographic glitter border */}
-        <div className="absolute inset-0 bg-gradient-to-tr from-slate-950/10 via-slate-800/20 to-indigo-900/10 pointer-events-none" />
+      <div className={`w-full h-full bg-slate-950 border-2 border-slate-800/80 rounded-xl p-2.5 flex flex-col justify-between relative text-slate-100 select-none shadow-xl overflow-hidden transition-all duration-300 hover:border-slate-700`}>
+        {/* Sleek abstract ambient card light meshes */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900/40 via-slate-950/90 to-slate-950 pointer-events-none" />
+        <div className="absolute -inset-px bg-gradient-to-tr from-transparent via-slate-800/30 to-slate-700/20 rounded-xl pointer-events-none" />
 
-        <div className={`text-sm font-display font-bold leading-none ${isRed ? 'text-rose-500' : 'text-slate-200'}`}>
+        {/* Top-left card value and mini-suit */}
+        <div className={`text-sm font-display font-extrabold leading-none ${isRed ? 'text-rose-500' : 'text-cyan-400'}`}>
           {displayValue}
-          <span className="block text-[11px] mt-0.5">{symbol}</span>
+          <span className="block text-[11px] mt-0.5 opacity-90">{symbol}</span>
         </div>
 
-        <div className={`text-4xl text-center self-center ${isRed ? 'text-rose-500 text-glow-magenta' : 'text-slate-300 text-glow-cyan'}`}>
-          {symbol}
+        {/* Central visual core of the card */}
+        <div className="flex flex-col items-center justify-center self-center relative w-12 h-12">
+          {/* Subtle geometric circle frame */}
+          <div className={`absolute inset-0 rounded-full border border-dashed opacity-10 animate-spin-slow ${isRed ? 'border-rose-500' : 'border-cyan-400'}`} style={{ animationDuration: '20s' }} />
+          <div className={`text-4xl text-center relative z-10 select-none ${isRed ? 'text-rose-500 text-glow-magenta' : 'text-cyan-400 text-glow-cyan'}`}>
+            {symbol}
+          </div>
         </div>
 
-        <div className={`text-sm font-display font-bold leading-none self-end text-right ${isRed ? 'text-rose-500' : 'text-slate-200'}`}>
+        {/* Bottom-right card value and mini-suit */}
+        <div className={`text-sm font-display font-extrabold leading-none self-end text-right ${isRed ? 'text-rose-500' : 'text-cyan-400'}`}>
           {displayValue}
-          <span className="block text-[11px] mt-0.5">{symbol}</span>
+          <span className="block text-[11px] mt-0.5 opacity-90">{symbol}</span>
         </div>
       </div>
     );
@@ -446,21 +486,33 @@ export const GameScreen: React.FC<GameScreenProps> = ({ currentUser, gameMode, o
 
   const renderCardBack = () => {
     return (
-      <div className="w-full h-full rounded-xl bg-holo-card border-2 border-amber-500/70 p-2 flex flex-col items-center justify-center relative shadow-lg overflow-hidden">
-        {/* Hologram shiny surface lines */}
-        <div className="absolute inset-0 bg-gradient-to-tr from-yellow-500/15 via-transparent to-indigo-500/20 pointer-events-none" />
+      <div className="w-full h-full rounded-xl bg-holo-card border-2 border-indigo-500/40 p-2 flex flex-col items-center justify-center relative shadow-xl overflow-hidden group">
+        {/* Tech grid backing visual details */}
+        <div className="absolute inset-0 cyber-grid opacity-15 pointer-events-none" />
         
-        {/* Outer card gold border detail */}
-        <div className="absolute inset-1.5 border border-amber-500/30 rounded-lg pointer-events-none" />
+        {/* Hologram metallic layer overlay */}
+        <div className="absolute inset-0 bg-gradient-to-tr from-cyan-500/10 via-transparent to-pink-500/10 pointer-events-none" />
+        
+        {/* Gold neon border lines detail */}
+        <div className="absolute inset-1.5 border border-indigo-400/20 rounded-lg pointer-events-none" />
 
-        {/* Brand logo in center */}
-        <div className="text-center relative z-10">
-          <span className="text-[10px] font-display font-black text-amber-400 tracking-wider">pisti</span>
-          <span className="text-[7px] font-mono text-indigo-400 block -mt-1 tracking-widest">.game</span>
+        {/* Outer neon nodes detail */}
+        <div className="absolute top-1 left-1 w-1 h-1 rounded-full bg-cyan-400/45" />
+        <div className="absolute top-1 right-1 w-1 h-1 rounded-full bg-cyan-400/45" />
+        <div className="absolute bottom-1 left-1 w-1 h-1 rounded-full bg-cyan-400/45" />
+        <div className="absolute bottom-1 right-1 w-1 h-1 rounded-full bg-cyan-400/45" />
+
+        {/* Central geometric design core */}
+        <div className="relative z-10 flex flex-col items-center justify-center bg-slate-950/80 border border-slate-800/80 rounded-xl px-2.5 py-3 shadow-inner">
+          <span className="text-[11px] font-display font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-400 tracking-wider">pisti</span>
+          <span className="text-[7px] font-mono text-pink-500/80 block -mt-1 tracking-widest font-extrabold">.game</span>
+          
+          <div className="w-3 h-[1px] bg-indigo-500/30 my-1" />
+          <span className="text-[8px] font-mono text-cyan-400/60 font-bold tracking-widest">CYBER</span>
         </div>
         
-        {/* Golden central star icon decoration */}
-        <div className="absolute opacity-20 text-yellow-500 text-2xl mt-8">★</div>
+        {/* Back decoration details */}
+        <div className="absolute opacity-10 text-cyan-400 text-3xl font-light scale-150 animate-pulse pointer-events-none">❖</div>
       </div>
     );
   };
@@ -549,29 +601,42 @@ export const GameScreen: React.FC<GameScreenProps> = ({ currentUser, gameMode, o
       )}
 
       {/* 4. GAME PLAYING FIELD (The Table) */}
-      <div className="bg-gradient-to-b from-indigo-950/40 to-slate-900/80 border border-slate-800/80 rounded-3xl p-6 md:p-8 min-h-[500px] flex flex-col justify-between relative overflow-hidden shadow-2xl">
+      <div className="bg-gradient-to-b from-slate-900/40 via-indigo-950/20 to-slate-950/95 border border-slate-800/60 rounded-3xl p-6 md:p-8 min-h-[500px] flex flex-col justify-between relative overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
         
         {/* Table Neon light grids background */}
-        <div className="absolute inset-0 cyber-grid opacity-30 pointer-events-none" />
+        <div className="absolute inset-0 cyber-grid opacity-20 pointer-events-none" />
 
         {/* A. Top Opponent (Bot 2) */}
         <div className="flex justify-center">
           {opponents[1] && (
-            <div className="flex flex-col items-center gap-1.5 bg-slate-950/80 border border-slate-900 px-3 py-2 rounded-xl text-center shadow">
+            <div className={`flex flex-col items-center gap-1.5 bg-slate-950/90 border px-4 py-2.5 rounded-2xl text-center shadow-lg transition-all duration-300 ${
+              currentTurn === 2 
+                ? 'border-indigo-500 ring-2 ring-indigo-500/30 scale-105 shadow-[0_0_20px_rgba(99,102,241,0.3)]' 
+                : 'border-slate-800/80'
+            }`}>
               <div className="flex items-center gap-1.5">
                 <img
                   src={opponents[1].avatarUrl}
                   alt={opponents[1].username}
-                  className="w-6 h-6 rounded-full bg-slate-900 border border-slate-700"
+                  className={`w-7 h-7 rounded-full bg-slate-900 border p-0.5 transition-all ${
+                    currentTurn === 2 ? 'border-indigo-400' : 'border-slate-800'
+                  }`}
                   referrerPolicy="no-referrer"
                 />
-                <span className="text-[11px] font-bold text-slate-300">{opponents[1].username}</span>
+                <span className={`text-[11px] font-display font-bold transition-colors ${
+                  currentTurn === 2 ? 'text-indigo-400 font-extrabold' : 'text-slate-300'
+                }`}>
+                  {opponents[1].username}
+                </span>
+                {currentTurn === 2 && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                )}
               </div>
               <div className="flex gap-1">
                 {(hands[opponents[1].id] || []).map((_, i) => (
                   <motion.div
                     key={i}
-                    className="w-5 h-7 bg-indigo-950 border border-indigo-900 rounded shadow-sm"
+                    className="w-5 h-7 bg-indigo-950/90 border border-indigo-900/60 rounded shadow-sm"
                     initial={{ y: -50, scale: 0.3, opacity: 0 }}
                     animate={{ y: 0, scale: 1, opacity: 1 }}
                     transition={{
@@ -592,21 +657,29 @@ export const GameScreen: React.FC<GameScreenProps> = ({ currentUser, gameMode, o
           {/* Bot Left (Bot 1) */}
           <div className="w-24">
             {opponents[0] && (
-              <div className="flex flex-col items-center gap-1.5 bg-slate-950/80 border border-slate-900 px-3 py-2 rounded-xl text-center shadow">
+              <div className={`flex flex-col items-center gap-1.5 bg-slate-950/90 border px-3 py-2.5 rounded-2xl text-center shadow-lg transition-all duration-300 ${
+                currentTurn === 1 
+                  ? 'border-indigo-500 ring-2 ring-indigo-500/30 scale-105 shadow-[0_0_20px_rgba(99,102,241,0.3)]' 
+                  : 'border-slate-800/80'
+              }`}>
                 <img
                   src={opponents[0].avatarUrl}
                   alt={opponents[0].username}
-                  className="w-6 h-6 rounded-full bg-slate-900 border border-slate-700"
+                  className={`w-7 h-7 rounded-full bg-slate-900 border p-0.5 transition-all ${
+                    currentTurn === 1 ? 'border-indigo-400' : 'border-slate-800'
+                  }`}
                   referrerPolicy="no-referrer"
                 />
-                <span className="text-[10px] font-bold text-slate-300 whitespace-nowrap overflow-hidden text-ellipsis w-full">
+                <span className={`text-[10px] font-display font-bold whitespace-nowrap overflow-hidden text-ellipsis w-full transition-colors ${
+                  currentTurn === 1 ? 'text-indigo-400 font-extrabold' : 'text-slate-300'
+                }`}>
                   {opponents[0].username}
                 </span>
                 <div className="flex gap-0.5 flex-wrap justify-center">
                   {(hands[opponents[0].id] || []).map((_, i) => (
                     <motion.div
                       key={i}
-                      className="w-4 h-6 bg-indigo-950 border border-indigo-900 rounded shrink-0 shadow-sm"
+                      className="w-4 h-6 bg-indigo-950/90 border border-indigo-900/60 rounded shrink-0 shadow-sm"
                       initial={{ x: -50, scale: 0.3, opacity: 0 }}
                       animate={{ x: 0, scale: 1, opacity: 1 }}
                       transition={{
@@ -623,16 +696,24 @@ export const GameScreen: React.FC<GameScreenProps> = ({ currentUser, gameMode, o
           </div>
 
           {/* Center Arena Pile (Orta Yer) */}
-          <div className="flex-1 max-w-sm h-48 bg-slate-950/60 border border-slate-900/60 rounded-3xl flex items-center justify-center relative shadow-inner">
-            
+          <div className={`flex-1 max-w-sm h-48 rounded-3xl flex items-center justify-center relative shadow-2xl transition-all duration-300 ${
+            currentTurn === 0 
+              ? 'bg-cyan-950/10 border-2 border-cyan-500/30 shadow-[0_0_30px_rgba(34,211,238,0.06)]' 
+              : 'bg-slate-950/70 border border-slate-800/60'
+          }`}>
+            {/* Soft inner gaming circles to frame center play */}
+            <div className="absolute inset-5 rounded-full border border-dashed border-slate-800/40 pointer-events-none flex items-center justify-center">
+              <div className="w-20 h-20 rounded-full border border-slate-900/40 bg-slate-950/30" />
+            </div>
+
             {/* Visual Deste (Deck) stack in center arena */}
             {deck.length > 0 && (
-              <div className="absolute top-3 right-4 flex flex-col items-center">
+              <div className="absolute top-3 right-4 flex flex-col items-center z-10">
                 <div className="relative w-7 h-10">
                   {[...Array(Math.min(3, Math.ceil(deck.length / 4)))].map((_, i) => (
                     <div
                       key={i}
-                      className="absolute inset-0 bg-indigo-950 border border-indigo-800 rounded shadow-md"
+                      className="absolute inset-0 bg-indigo-950/90 border border-indigo-800/50 rounded shadow-md"
                       style={{
                         transform: `translate(${i * 1.5}px, ${i * -1.5}px)`,
                         zIndex: 5 - i,
@@ -646,13 +727,13 @@ export const GameScreen: React.FC<GameScreenProps> = ({ currentUser, gameMode, o
 
             {/* Ripple Wave Light effect */}
             {rippleActive && (
-              <div className="absolute w-24 h-24 bg-cyan-400/20 border border-cyan-400 rounded-full animate-ping pointer-events-none" />
+              <div className="absolute w-24 h-24 bg-cyan-400/20 border-2 border-cyan-400 rounded-full animate-ping pointer-events-none" />
             )}
 
             {boardPile.length === 0 ? (
-              <div className="text-center p-4">
-                <span className="text-[10px] font-mono text-slate-600 uppercase tracking-widest block">BOŞ ARENA</span>
-                <span className="text-[9px] font-mono text-slate-700 mt-1 block">Yer Boş, İstediğin Kartı At!</span>
+              <div className="text-center p-4 relative z-10">
+                <span className="text-[10px] font-mono text-slate-500 uppercase tracking-widest block font-bold">BOŞ ARENA</span>
+                <span className="text-[9px] font-sans text-slate-600 mt-1 block">Yere bir kart atarak oyunu başlat!</span>
               </div>
             ) : (
               <div className="relative w-24 h-36">
@@ -722,7 +803,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({ currentUser, gameMode, o
                 })}
 
                 {/* Pile count tracker tag */}
-                <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-slate-950 border border-slate-800 px-2 py-0.5 rounded-full text-[9px] font-mono font-bold text-indigo-400 z-30 whitespace-nowrap">
+                <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-slate-950 border border-slate-800 px-2.5 py-0.5 rounded-full text-[9px] font-mono font-bold text-cyan-400 z-30 whitespace-nowrap shadow-md">
                   {boardPile.length} KART
                 </div>
               </div>
@@ -732,21 +813,29 @@ export const GameScreen: React.FC<GameScreenProps> = ({ currentUser, gameMode, o
           {/* Bot Right (Bot 3) */}
           <div className="w-24">
             {opponents[2] && (
-              <div className="flex flex-col items-center gap-1.5 bg-slate-950/80 border border-slate-900 px-3 py-2 rounded-xl text-center shadow">
+              <div className={`flex flex-col items-center gap-1.5 bg-slate-950/90 border px-3 py-2.5 rounded-2xl text-center shadow-lg transition-all duration-300 ${
+                currentTurn === 3 
+                  ? 'border-indigo-500 ring-2 ring-indigo-500/30 scale-105 shadow-[0_0_20px_rgba(99,102,241,0.3)]' 
+                  : 'border-slate-800/80'
+              }`}>
                 <img
                   src={opponents[2].avatarUrl}
                   alt={opponents[2].username}
-                  className="w-6 h-6 rounded-full bg-slate-900 border border-slate-700"
+                  className={`w-7 h-7 rounded-full bg-slate-900 border p-0.5 transition-all ${
+                    currentTurn === 3 ? 'border-indigo-400' : 'border-slate-800'
+                  }`}
                   referrerPolicy="no-referrer"
                 />
-                <span className="text-[10px] font-bold text-slate-300 whitespace-nowrap overflow-hidden text-ellipsis w-full">
+                <span className={`text-[10px] font-display font-bold whitespace-nowrap overflow-hidden text-ellipsis w-full transition-colors ${
+                  currentTurn === 3 ? 'text-indigo-400 font-extrabold' : 'text-slate-300'
+                }`}>
                   {opponents[2].username}
                 </span>
                 <div className="flex gap-0.5 flex-wrap justify-center">
                   {(hands[opponents[2].id] || []).map((_, i) => (
                     <motion.div
                       key={i}
-                      className="w-4 h-6 bg-indigo-950 border border-indigo-900 rounded shrink-0 shadow-sm"
+                      className="w-4 h-6 bg-indigo-950/90 border border-indigo-900/60 rounded shrink-0 shadow-sm"
                       initial={{ x: 50, scale: 0.3, opacity: 0 }}
                       animate={{ x: 0, scale: 1, opacity: 1 }}
                       transition={{
@@ -767,10 +856,14 @@ export const GameScreen: React.FC<GameScreenProps> = ({ currentUser, gameMode, o
         <div className="flex flex-col items-center gap-4">
           
           {/* Card Count logs */}
-          <div className="flex items-center gap-4 justify-center text-[10px] font-mono text-slate-500 uppercase tracking-widest bg-slate-950/40 border border-slate-900 px-4 py-1.5 rounded-full">
-            <span>Senin Topladığın: <strong className="text-slate-300">{capturedCards[currentUser.id]?.length || 0} Kart</strong></span>
-            <div className="w-1 h-1 bg-slate-800 rounded-full" />
-            <span>Kalan Deste: <strong className="text-slate-300">{deck.length} Kart</strong></span>
+          <div className={`flex items-center gap-4 justify-center text-[10px] font-mono uppercase tracking-widest border px-4 py-1.5 rounded-full transition-all duration-300 ${
+            currentTurn === 0 
+              ? 'border-cyan-500/40 text-cyan-400 bg-cyan-950/25 shadow-[0_0_15px_rgba(34,211,238,0.15)]' 
+              : 'border-slate-850 bg-slate-950/40 text-slate-500'
+          }`}>
+            <span>Senin Topladığın: <strong className={currentTurn === 0 ? 'text-cyan-300' : 'text-slate-400'}>{capturedCards[currentUser.id]?.length || 0} Kart</strong></span>
+            <div className={`w-1 h-1 rounded-full ${currentTurn === 0 ? 'bg-cyan-400' : 'bg-slate-700'}`} />
+            <span>Kalan Deste: <strong className={currentTurn === 0 ? 'text-cyan-300' : 'text-slate-400'}>{deck.length} Kart</strong></span>
           </div>
 
           {/* The curved hand dock container */}
@@ -794,10 +887,10 @@ export const GameScreen: React.FC<GameScreenProps> = ({ currentUser, gameMode, o
                   <motion.div
                     key={card.id}
                     onClick={() => currentTurn === 0 && playCard(currentUser.id, card, 0)}
-                    className={`w-24 h-36 relative cursor-pointer select-none origin-bottom flex-shrink-0 ${
+                    className={`w-24 h-36 relative cursor-pointer select-none origin-bottom flex-shrink-0 transition-all ${
                       currentTurn === 0 
-                        ? 'shadow-indigo-500/10 shadow-sm' 
-                        : 'opacity-60 pointer-events-none grayscale'
+                        ? 'shadow-indigo-500/10 hover:shadow-[0_0_15px_rgba(34,211,238,0.25)]' 
+                        : 'opacity-50 pointer-events-none grayscale'
                     }`}
                     initial={{
                       x: 0,
