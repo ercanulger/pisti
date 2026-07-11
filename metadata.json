@@ -1,0 +1,6 @@
+{
+  "name": "pisti.game",
+  "description": "Profesyonel, AAA kalitesinde Cyber-Classic temalı Pişti oyunu. Bot rakipler, Elo kupa sistemi, animasyonlu RGB çerçeve mağazası, gelişmiş admin paneli ve detaylı oyuncu istatistikleri.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
