@@ -4,6 +4,14 @@
  */
 
 import { ShopItem, Player, UserRole, UserInventory, AuditLog, Quest, LiveFeedItem, MatchHistory } from '../types';
+import {
+  syncUserToFirestore,
+  syncInventoryToFirestore,
+  syncLogToFirestore,
+  syncMatchToFirestore,
+  syncRoleToFirestore,
+  loadAllFromFirestore
+} from './firestore-sync';
 
 const SHOP_ITEMS_KEY = 'pisti_shop_items';
 const USERS_KEY = 'pisti_users';
@@ -323,6 +331,9 @@ export function initializeDB() {
     ];
     localStorage.setItem(MATCH_HISTORY_KEY, JSON.stringify(defaultHistory));
   }
+
+  // Load latest online data from Firestore in the background
+  loadAllFromFirestore();
 }
 
 // User Profile helpers
@@ -340,13 +351,14 @@ export function getCurrentUser(): Player | null {
   return found || null;
 }
 
-export function registerUser(username: string): Player {
+export function registerUser(username: string, email?: string): Player {
   initializeDB();
   const users = getUsers();
   const newId = `user_${Date.now()}`;
   const newPlayer: Player = {
     id: newId,
     username,
+    email: email || '',
     avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(username)}`,
     elo: 1000,
     coins: 200, // starting coins
@@ -356,6 +368,7 @@ export function registerUser(username: string): Player {
   localStorage.setItem(USERS_KEY, JSON.stringify(users));
   localStorage.setItem(CURRENT_USER_ID_KEY, newId);
   writeAuditLog(newId, 'USER_REGISTER', `${username} platforma kayıt oldu!`);
+  syncUserToFirestore(newPlayer);
   return newPlayer;
 }
 
@@ -366,7 +379,9 @@ export function updateCurrentUser(updated: Partial<Player>) {
   if (!currentId) return;
   const updatedUsers = users.map((u) => {
     if (u.id === currentId) {
-      return { ...u, ...updated };
+      const newUser = { ...u, ...updated };
+      syncUserToFirestore(newUser);
+      return newUser;
     }
     return u;
   });
@@ -379,7 +394,9 @@ export function updateUserCoinsAndElo(userId: string, coinDelta: number, eloDelt
     if (u.id === userId) {
       const newCoins = Math.max(0, u.coins + coinDelta);
       const newElo = Math.max(100, u.elo + eloDelta);
-      return { ...u, coins: newCoins, elo: newElo };
+      const newUser = { ...u, coins: newCoins, elo: newElo };
+      syncUserToFirestore(newUser);
+      return newUser;
     }
     return u;
   });
@@ -424,6 +441,7 @@ export function buyShopItem(userId: string, item: ShopItem): { success: boolean;
   user.coins -= item.price;
   users[userIndex] = user;
   localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  syncUserToFirestore(user);
 
   // Add to inventory
   const allInv = JSON.parse(localStorage.getItem(INVENTORY_KEY) || '[]');
@@ -436,6 +454,7 @@ export function buyShopItem(userId: string, item: ShopItem): { success: boolean;
   };
   allInv.push(newInv);
   localStorage.setItem(INVENTORY_KEY, JSON.stringify(allInv));
+  syncInventoryToFirestore(newInv);
 
   // Write to Audit Log
   writeAuditLog(userId, 'SHOP_PURCHASE', `Mağazadan '${item.name}' satın alındı. Harcanan: ${item.price} Coin.`);
@@ -460,6 +479,7 @@ export function writeAuditLog(userId: string, action: string, details: string) {
   };
   logs.unshift(newLog); // Put newest first
   localStorage.setItem(AUDIT_LOG_KEY, JSON.stringify(logs));
+  syncLogToFirestore(newLog);
 }
 
 // Quests helpers
@@ -548,6 +568,7 @@ export function saveMatchResult(historyItem: MatchHistory) {
   const history = getMatchHistory();
   history.unshift(historyItem);
   localStorage.setItem(MATCH_HISTORY_KEY, JSON.stringify(history));
+  syncMatchToFirestore(historyItem);
 
   // Update real-time scoreboard in simulated Vercel KV and user profiles
   historyItem.players.forEach((p) => {
